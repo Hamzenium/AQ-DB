@@ -1,168 +1,76 @@
-# Architecture Overview
+```mermaid
+graph TB
+    subgraph CLIENT["CLIENT LAYER"]
+        C1[Client 1]:::client
+        C2[Client 2]:::client
+        C3[Client 3]:::client
+        CN[Client N]:::client
+    end
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         CLIENT LAYER                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│  │ Client 1 │  │ Client 2 │  │ Client 3 │  │ Client N │        │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
-└───────┼─────────────┼─────────────┼─────────────┼───────────────┘
-        │             │             │             │
-        └─────────────┴─────────────┴─────────────┘
-                      │ TCP Connections
-                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        SERVER LAYER                              │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                    TCP Server                              │  │
-│  │  • Listen on port (default: 6379)                         │  │
-│  │  • Accept incoming connections                            │  │
-│  │  • Spawn Connection handlers                              │  │
-│  └───────────────────────┬───────────────────────────────────┘  │
-└────────────────────────────┼──────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      EVENT LOOP LAYER                            │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │              epoll/kqueue Event Loop                       │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐                │  │
-│  │  │ READABLE Events │  │ WRITABLE Events │                │  │
-│  │  │  • Data ready   │  │  • Buffer space │                │  │
-│  │  │  • New commands │  │  • Send response│                │  │
-│  │  └────────┬────────┘  └────────┬────────┘                │  │
-│  └───────────┼──────────────────────┼───────────────────────────┘
-└──────────────┼──────────────────────┼───────────────────────────┘
-               │                      │
-               ▼                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    CONNECTION LAYER                              │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
-│  │ Connection 1  │  │ Connection 2  │  │ Connection N  │       │
-│  │ ┌───────────┐ │  │ ┌───────────┐ │  │ ┌───────────┐ │       │
-│  │ │Read Buffer│ │  │ │Read Buffer│ │  │ │Read Buffer│ │       │
-│  │ └─────┬─────┘ │  │ └─────┬─────┘ │  │ └─────┬─────┘ │       │
-│  │       │       │  │       │       │  │       │       │       │
-│  │ ┌─────▼──────┐│  │ ┌─────▼──────┐│  │ ┌─────▼──────┐│       │
-│  │ │Write Buffer││  │ │Write Buffer││  │ │Write Buffer││       │
-│  │ └────────────┘│  │ └────────────┘│  │ └────────────┘│       │
-│  └───────┬───────┘  └───────┬───────┘  └───────┬───────┘       │
-└──────────┼──────────────────┼──────────────────┼────────────────┘
-           │                  │                  │
-           └──────────────────┴──────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      PROTOCOL LAYER                              │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                    RESP Parser                             │  │
-│  │                                                            │  │
-│  │  Input:  *2\r\n$3\r\nGET\r\n$5\r\nmykey\r\n             │  │
-│  │                      │                                     │  │
-│  │                      ▼                                     │  │
-│  │  Parse:  ┌─────────────────┐                             │  │
-│  │          │ Command: GET    │                             │  │
-│  │          │ Args: ["mykey"] │                             │  │
-│  │          └────────┬────────┘                             │  │
-│  └───────────────────┼───────────────────────────────────────┘  │
-└────────────────────────┼──────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     COMMAND LAYER                                │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │               Command Dispatcher                           │  │
-│  │                                                            │  │
-│  │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐       │  │
-│  │  │ GET  │  │ SET  │  │ DEL  │  │ INCR │  │ ...  │       │  │
-│  │  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘       │  │
-│  └─────┼─────────┼─────────┼─────────┼─────────┼─────────────┘  │
-└────────┼─────────┼─────────┼─────────┼─────────┼────────────────┘
-         └─────────┴─────────┴─────────┴─────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      STORAGE LAYER                               │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                    KVStore Manager                         │  │
-│  │                                                            │  │
-│  │              hash(key) % shard_count                       │  │
-│  │                      │                                     │  │
-│  │       ┌──────────────┼──────────────┬──────────────┐      │  │
-│  └───────┼──────────────┼──────────────┼──────────────┼──────┘  │
-└──────────┼──────────────┼──────────────┼──────────────┼──────────┘
-           │              │              │              │
-           ▼              ▼              ▼              ▼
-    ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
-    │ Shard 0  │   │ Shard 1  │   │ Shard 2  │   │ Shard N  │
-    │┌────────┐│   │┌────────┐│   │┌────────┐│   │┌────────┐│
-    ││ mutex  ││   ││ mutex  ││   ││ mutex  ││   ││ mutex  ││
-    │└────────┘│   │└────────┘│   │└────────┘│   │└────────┘│
-    │┌────────┐│   │┌────────┐│   │┌────────┐│   │┌────────┐│
-    ││hash_map││   ││hash_map││   ││hash_map││   ││hash_map││
-    │└────────┘│   │└────────┘│   │└────────┘│   │└────────┘│
-    └──────────┘   └──────────┘   └──────────┘   └──────────┘
-```
+    subgraph SERVER["SERVER LAYER"]
+        TCP[TCP Server<br/>Listen on port 6379<br/>Accept connections<br/>Spawn handlers]:::server
+    end
 
-## Component Responsibilities
+    subgraph EVENTLOOP["EVENT LOOP LAYER"]
+        EPOLL[epoll/kqueue Event Loop]:::eventloop
+        READ[READABLE Events<br/>Data ready<br/>New commands]:::event
+        WRITE[WRITABLE Events<br/>Buffer space<br/>Send response]:::event
+        EPOLL --- READ
+        EPOLL --- WRITE
+    end
 
-### Client Layer
-- External applications connecting via TCP
-- Send RESP-formatted commands
-- Receive RESP-formatted responses
+    subgraph CONNLAYER["CONNECTION LAYER"]
+        CONN1[Connection 1<br/>Read Buffer<br/>Write Buffer]:::connection
+        CONN2[Connection 2<br/>Read Buffer<br/>Write Buffer]:::connection
+        CONNN[Connection N<br/>Read Buffer<br/>Write Buffer]:::connection
+    end
 
-### Server Layer
-- Listen for incoming TCP connections
-- Accept and manage client sockets
-- Initialize connection handlers
+    subgraph PROTOCOL["PROTOCOL LAYER"]
+        RESP[RESP Parser<br/>Parse byte streams<br/>Validate syntax<br/>Extract commands]:::protocol
+    end
 
-### Event Loop Layer
-- Non-blocking I/O multiplexing (epoll/kqueue)
-- Monitor socket readability (incoming data)
-- Monitor socket writability (buffer space available)
-- Efficient handling of thousands of concurrent connections
+    subgraph COMMAND["COMMAND LAYER"]
+        DISPATCH[Command Dispatcher]:::dispatcher
+        GET[GET]:::cmd
+        SET[SET]:::cmd
+        DEL[DEL]:::cmd
+        INCR[INCR]:::cmd
+        OTHER[...]:::cmd
+        DISPATCH --> GET
+        DISPATCH --> SET
+        DISPATCH --> DEL
+        DISPATCH --> INCR
+        DISPATCH --> OTHER
+    end
 
-### Connection Layer
-- Per-client state management
-- Read buffer: Accumulate incoming bytes
-- Write buffer: Queue outgoing responses
-- Parse complete RESP messages from stream
+    subgraph STORAGE["STORAGE LAYER"]
+        MGR[KVStore Manager<br/>hash key mod N]:::storage
+        SHARD0[Shard 0<br/>mutex<br/>hash_map]:::shard
+        SHARD1[Shard 1<br/>mutex<br/>hash_map]:::shard
+        SHARD2[Shard 2<br/>mutex<br/>hash_map]:::shard
+        SHARDN[Shard N<br/>mutex<br/>hash_map]:::shard
+        MGR --> SHARD0
+        MGR --> SHARD1
+        MGR --> SHARD2
+        MGR --> SHARDN
+    end
 
-### Protocol Layer
-- RESP (REdis Serialization Protocol) parser
-- Convert byte streams to structured commands
-- Validate command syntax
-- Handle inline and bulk string formats
+    C1 & C2 & C3 & CN -.->|TCP| TCP
+    TCP --> EPOLL
+    READ & WRITE --> CONN1 & CONN2 & CONNN
+    CONN1 & CONN2 & CONNN --> RESP
+    RESP --> DISPATCH
+    GET & SET & DEL & INCR & OTHER --> MGR
 
-### Command Layer
-- Route parsed commands to handlers
-- Implement Redis commands (GET, SET, DEL, INCR, etc.)
-- Execute business logic
-- Generate RESP-formatted responses
+    classDef client fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
+    classDef server fill:#E94B3C,stroke:#A63229,stroke-width:2px,color:#fff
+    classDef eventloop fill:#F39C12,stroke:#C87F0A,stroke-width:3px,color:#fff
+    classDef event fill:#F5B041,stroke:#D68910,stroke-width:2px,color:#333
+    classDef connection fill:#9B59B6,stroke:#6C3483,stroke-width:2px,color:#fff
+    classDef protocol fill:#1ABC9C,stroke:#138D75,stroke-width:2px,color:#fff
+    classDef dispatcher fill:#E74C3C,stroke:#A93226,stroke-width:3px,color:#fff
+    classDef cmd fill:#EC7063,stroke:#C0392B,stroke-width:2px,color:#fff
+    classDef storage fill:#16A085,stroke:#0E6655,stroke-width:3px,color:#fff
+    classDef shard fill:#48C9B0,stroke:#1ABC9C,stroke-width:2px,color:#fff
 
-### Storage Layer
-- **KVStore Manager**: Coordinate access across shards
-- **Sharding**: Distribute keys using `hash(key) % N`
-- **Shards**: Independent hash maps with per-shard locking
-- Lock-free reads between shards for parallelism
-- Thread-safe operations within each shard
-
-## Data Flow Example
-
-```
-Client sends: SET mykey myvalue
-
-1. TCP bytes arrive → Event Loop detects readable socket
-2. Connection reads into buffer: "*3\r\n$3\r\nSET\r\n..."
-3. RESP Parser extracts: Command("SET", ["mykey", "myvalue"])
-4. Dispatcher routes to SET handler
-5. SET handler:
-   - Computes shard: hash("mykey") % N = shard_id
-   - Locks shard_id
-   - Inserts/updates map["mykey"] = "myvalue"
-   - Unlocks shard_id
-6. Response generated: "+OK\r\n"
-7. Response written to Connection write buffer
-8. Event Loop detects writable socket → sends response
-9. Client receives: "+OK\r\n"
-```
+    ```
