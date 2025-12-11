@@ -1,73 +1,159 @@
-subgraph server["🌐 SERVER LAYER"]
-    TCP[TCP Server<br/>Port 6379<br/>Accept Connections]
+flowchart TD
+
+%% =========================
+%% CLIENTS
+%% =========================
+C1[Client 1<br/>redis-cli]:::clientStyle
+C2[Client 2<br/>microservice]:::clientStyle
+C3[Client 3<br/>app]:::clientStyle
+CN[Client N]:::clientStyle
+
+%% =========================
+%% SERVER LAYER
+%% =========================
+subgraph server ["🌐 SERVER LAYER"]
+    TCP[TCP Server<br/>Port 6379<br/>Accept Connections]:::serverStyle
 end
 
-subgraph eventloop["⚡ EVENT LOOP LAYER"]
-    EL[epoll/kqueue<br/>Event Multiplexer]
-    READ[Readable Events<br/>Data Ready]
-    WRITE[Writable Events<br/>Buffer Space]
+%% =========================
+%% EVENT LOOP
+%% =========================
+subgraph eventloop ["⚡ EVENT LOOP LAYER"]
+    EL[Event Loop<br/>epoll/kqueue]:::eventStyle
+    READ[Readable Events]:::eventStyle
+    WRITE[Writable Events]:::eventStyle
 end
 
-subgraph connections["🔌 CONNECTION LAYER"]
-    CONN1[Connection 1<br/>Read Buffer<br/>Write Buffer]
-    CONN2[Connection 2<br/>Read Buffer<br/>Write Buffer]
-    CONNN[Connection N<br/>Read Buffer<br/>Write Buffer]
+%% =========================
+%% CONNECTIONS
+%% =========================
+subgraph connections ["🔌 CONNECTION LAYER"]
+    CONN1[Connection 1<br/>Read + Write Buffers]:::connStyle
+    CONN2[Connection 2<br/>Read + Write Buffers]:::connStyle
+    CONNN[Connection N<br/>Read + Write Buffers]:::connStyle
 end
 
-subgraph protocol["📋 PROTOCOL LAYER"]
-    PARSER[RESP Parser<br/>*2 $3 GET $5 mykey<br/>→ Command Object]
+%% =========================
+%% PROTOCOL
+%% =========================
+subgraph protocol ["📋 PROTOCOL LAYER"]
+    PARSER[RESP Parser<br/>*2 $3 GET $5 mykey → Command]:::protocolStyle
 end
 
-subgraph command["⚙️ COMMAND LAYER"]
-    DISPATCH[Command Dispatcher]
-    GET[GET Handler]
-    SET[SET Handler]
-    DEL[DEL Handler]
-    INCR[INCR Handler]
-    OTHER[Other Commands]
+%% =========================
+%% COMMAND LAYER
+%% =========================
+subgraph command ["⚙️ COMMAND DISPATCHER"]
+    DISPATCH[Command Dispatcher]:::commandStyle
+    GET[GET Handler]:::commandStyle
+    SET[SET Handler]:::commandStyle
+    DEL[DEL Handler]:::commandStyle
+    INCR[INCR Handler]:::commandStyle
+    OTHER[Other Commands]:::commandStyle
 end
 
-subgraph storage["💾 STORAGE LAYER"]
-    KV[KVStore Manager<br/>hash key mod N]
+%% =========================
+%% STORAGE LAYER
+%% =========================
+subgraph storage ["💾 STORAGE LAYER"]
+    KV[KVStore<br/>hash(key) % N]:::storageStyle
 end
 
-subgraph shards["🗄️ SHARDED DATA"]
-    S0[Shard 0<br/>🔒 mutex<br/>HashMap]
-    S1[Shard 1<br/>🔒 mutex<br/>HashMap]
-    S2[Shard 2<br/>🔒 mutex<br/>HashMap]
-    SN[Shard N<br/>🔒 mutex<br/>HashMap]
+%% =========================
+%% SHARDS
+%% =========================
+subgraph shards ["🗄️ SHARDED DATA"]
+    S0[Shard 0<br/>HashMap]:::shardStyle
+    S1[Shard 1<br/>HashMap]:::shardStyle
+    S2[Shard 2<br/>HashMap]:::shardStyle
+    SN[Shard N<br/>HashMap]:::shardStyle
 end
 
-C1 & C2 & C3 & CN -->|TCP Connection| TCP
-TCP -->|Create Handler| EL
+
+%% =========================
+%% FLOWS
+%% =========================
+
+%% Clients → Server
+C1 -->|TCP Connection| TCP
+C2 -->|TCP Connection| TCP
+C3 -->|TCP Connection| TCP
+CN -->|TCP Connection| TCP
+
+%% Server → Event Loop
+TCP -->|Register Socket| EL
+
+%% Event Loop events
 EL --> READ
 EL --> WRITE
-READ --> CONN1 & CONN2 & CONNN
-CONN1 & CONN2 & CONNN -->|Feed Bytes| PARSER
+
+%% READ → Connections
+READ --> CONN1
+READ --> CONN2
+READ --> CONNN
+
+%% Connections → Parser
+CONN1 -->|Bytes| PARSER
+CONN2 -->|Bytes| PARSER
+CONNN -->|Bytes| PARSER
+
+%% Parser → Dispatcher
 PARSER -->|Parsed Command| DISPATCH
-DISPATCH --> GET & SET & DEL & INCR & OTHER
-GET & SET & DEL & INCR & OTHER -->|Execute| KV
-KV -->|Route by hash| S0 & S1 & S2 & SN
-S0 & S1 & S2 & SN -.->|Response| KV
-KV -.->|Result| DISPATCH
-DISPATCH -.->|Format RESP| CONN1 & CONN2 & CONNN
-CONN1 & CONN2 & CONNN -.->|Queue Write| WRITE
-WRITE -.->|Send| C1 & C2 & C3 & CN
 
-classDef clientStyle fill:#E3F2FD,stroke:#1976D2,stroke-width:3px,color:#000
-classDef serverStyle fill:#F3E5F5,stroke:#7B1FA2,stroke-width:3px,color:#000
-classDef eventStyle fill:#FFF3E0,stroke:#F57C00,stroke-width:3px,color:#000
-classDef connStyle fill:#E8F5E9,stroke:#388E3C,stroke-width:3px,color:#000
-classDef protocolStyle fill:#FCE4EC,stroke:#C2185B,stroke-width:3px,color:#000
-classDef commandStyle fill:#E0F2F1,stroke:#00796B,stroke-width:3px,color:#000
-classDef storageStyle fill:#FFF9C4,stroke:#F9A825,stroke-width:3px,color:#000
-classDef shardStyle fill:#FFEBEE,stroke:#D32F2F,stroke-width:3px,color:#000
+%% Dispatcher → Command Handlers
+DISPATCH --> GET
+DISPATCH --> SET
+DISPATCH --> DEL
+DISPATCH --> INCR
+DISPATCH --> OTHER
 
-class C1,C2,C3,CN clientStyle
-class TCP serverStyle
-class EL,READ,WRITE eventStyle
-class CONN1,CONN2,CONNN connStyle
-class PARSER protocolStyle
-class DISPATCH,GET,SET,DEL,INCR,OTHER commandStyle
-class KV storageStyle
-class S0,S1,S2,SN shardStyle
+%% Command → Storage
+GET --> KV
+SET --> KV
+DEL --> KV
+INCR --> KV
+OTHER --> KV
+
+%% Storage → Shards
+KV -->|hash(key)| S0
+KV -->|hash(key)| S1
+KV -->|hash(key)| S2
+KV -->|hash(key)| SN
+
+%% Shards → KVStore
+S0 -.-> KV
+S1 -.-> KV
+S2 -.-> KV
+SN -.-> KV
+
+%% Back to dispatcher
+KV -.-> DISPATCH
+
+%% Dispatcher → Connections (RESP encode)
+DISPATCH -.->|RESP Response| CONN1
+DISPATCH -.-> CONN2
+DISPATCH -.-> CONNN
+
+%% Connections → Event Loop (write buffer ready)
+CONN1 -.-> WRITE
+CONN2 -.-> WRITE
+CONNN -.-> WRITE
+
+%% WRITE → Clients
+WRITE -.->|Send Bytes| C1
+WRITE -.-> C2
+WRITE -.-> C3
+WRITE -.-> CN
+
+
+%% =========================
+%% STYLES
+%% =========================
+classDef clientStyle fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,color:#000
+classDef serverStyle fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,color:#000
+classDef eventStyle fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,color:#000
+classDef connStyle fill:#E8F5E9,stroke:#388E3C,stroke-width:2px,color:#000
+classDef protocolStyle fill:#FCE4EC,stroke:#C2185B,stroke-width:2px,color:#000
+classDef commandStyle fill:#E0F2F1,stroke:#00796B,stroke-width:2px,color:#000
+classDef storageStyle fill:#FFF9C4,stroke:#F9A825,stroke-width:2px,color:#000
+classDef shardStyle fill:#FFEBEE,stroke:#D32F2F,stroke-width:2px,color:#000
