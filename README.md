@@ -1,3 +1,30 @@
+### Run the Application
+```bash
+$ telnet localhost 6379
+> PING
+PONG
+
+> SET name Hamza
+OK
+
+> GET name
+Hamza
+> DEL name
+1
+
+> GET name
+(nil)
+
+> Exit
+ctrl + ]
+quit
+```
+
+---
+
+
+
+
 ```mermaid
 graph TB
     subgraph CLIENT["CLIENT LAYER"]
